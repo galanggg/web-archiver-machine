@@ -1,0 +1,45 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Local Wayback Machine</title>
+    <style>
+        :root { --bg: #f8fafc; --text-main: #0f172a; --text-muted: #64748b; --card-bg: #ffffff; --primary: #3b82f6; --border: #e2e8f0; }
+        body { font-family: system-ui, -apple-system, sans-serif; background-color: var(--bg); color: var(--text-main); margin: 0; padding: 2rem; }
+        .container { max-width: 1000px; margin: 0 auto; }
+        header { margin-bottom: 3rem; text-align: center; }
+        h1 { font-size: 2.5rem; font-weight: 800; margin: 0; }
+        .subtitle { color: var(--text-muted); font-size: 1.1rem; margin-top: 0.5rem; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1.5rem; }
+
+        .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; display: flex; flex-direction: column; transition: all 0.2s ease; box-shadow: 0 1px 3px rgba(0,0,0,0.05); overflow: hidden; }
+        .card:hover { transform: translateY(-4px); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); border-color: #bfdbfe; }
+        .card-body { padding: 1.5rem; display: flex; align-items: center; flex: 1; }
+        .card-icon { background: #eff6ff; color: var(--primary); padding: 0.75rem; border-radius: 10px; margin-right: 1.25rem; }
+        .card-content { flex: 1; min-width: 0; }
+        .domain { margin: 0 0 0.25rem 0; font-size: 1.1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .original-url { margin: 0 0 0.5rem 0; font-size: 0.85rem; color: var(--primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .date-row { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem;}
+        .date { margin: 0; font-size: 0.85rem; color: var(--text-muted); }
+        .stats-row { display: flex; gap: 0.5rem; }
+        .pill { font-size: 0.7rem; font-weight: 600; padding: 2px 8px; border-radius: 12px; }
+        .badge-blue { background: #dbeafe; color: #1e40af; }
+        .badge-gray { background: #f1f5f9; color: #475569; }
+
+        .card-actions { border-top: 1px solid var(--border); padding: 1rem 1.5rem; display: flex; gap: 1rem; background: #f8fafc; }
+        .btn { padding: 0.5rem 1rem; border-radius: 6px; text-decoration: none; font-size: 0.875rem; font-weight: 600; transition: all 0.2s; text-align: center; flex: 1; display: flex; justify-content: center; align-items: center; gap: 0.5rem; }
+        .btn-primary { background: var(--primary); color: white; border: 1px solid var(--primary); }
+        .btn-primary:hover { background: #2563eb; }
+        .btn-secondary { background: white; color: #475569; border: 1px solid #cbd5e1; }
+        .btn-secondary:hover { background: #f1f5f9; color: #0f172a; border-color: #94a3b8; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header><h1>Web Archiver</h1><p class="subtitle">Your personal, offline time machine.</p></header>
+        <div class="grid">{{CARDS_HTML}}</div>
+    </div>
+</body>
+</html>

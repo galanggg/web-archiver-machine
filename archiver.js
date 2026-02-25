@@ -22,7 +22,6 @@ if (scheduleIdx !== -1 && args[scheduleIdx + 1]) {
 }
 
 // --- 2. The Reusable Archiver Function ---
-// We wrap everything in this function so it can be called multiple times by the scheduler
 async function runArchive(startUrl) {
   let parsedUrl
   try {
@@ -35,7 +34,6 @@ async function runArchive(startUrl) {
   const baseDomain = parsedUrl.hostname
   const domainClean = baseDomain.replace(/[^a-z0-9]/gi, '_')
 
-  // GENERATE FOLDERS INSIDE THE FUNCTION (So every scheduled run gets a unique timestamped folder)
   const timestamp = Date.now()
   const archiveDir = path.join(
     __dirname,
@@ -59,11 +57,10 @@ async function runArchive(startUrl) {
   const urlMap = new Map()
   console.log(`\n📂 Created new archive directory: ${archiveDir}`)
 
-  // Helper: Converts a web URL into a safe local HTML filename
   function getLocalHtmlPath(pageUrl) {
     try {
       const urlObj = new URL(pageUrl)
-      if (urlObj.hostname !== baseDomain) return pageUrl // External link
+      if (urlObj.hostname !== baseDomain) return pageUrl
 
       let pathname = urlObj.pathname
       if (pathname === '/' || pathname === '') return 'index.html'
@@ -255,7 +252,8 @@ async function runArchive(startUrl) {
         })
         await new Promise((resolve) => setTimeout(resolve, 2000))
 
-        const $ = cheerio.load(pristineHtml)
+        // Added { decodeEntities: false } to prevent Cheerio from mutating framework inline JSON scripts (React/Vue fixes)
+        const $ = cheerio.load(pristineHtml, { decodeEntities: false })
 
         const rewriteAssetUrl = (originalUrl) => {
           if (
@@ -265,16 +263,61 @@ async function runArchive(startUrl) {
           )
             return originalUrl
           try {
-            const absoluteUrl = new URL(originalUrl, cleanUrl).href
+            const cleanOriginal = originalUrl.replace(/&amp;/g, '&')
+            const absoluteUrl = new URL(cleanOriginal, cleanUrl).href
+
             if (urlMap.has(absoluteUrl)) return urlMap.get(absoluteUrl)
 
-            const urlWithoutQuery = absoluteUrl.split('?')[0]
+            const decodedAbsolute = decodeURIComponent(absoluteUrl)
             for (let [key, value] of urlMap.entries()) {
-              if (key.split('?')[0] === urlWithoutQuery) return value
+              if (decodeURIComponent(key) === decodedAbsolute) return value
+            }
+
+            // Disable query-stripping for dynamic Next.js images
+            if (
+              !absoluteUrl.includes('/_next/image') &&
+              !absoluteUrl.includes('?url=')
+            ) {
+              const urlWithoutQuery = absoluteUrl.split('?')[0]
+              for (let [key, value] of urlMap.entries()) {
+                if (key.split('?')[0] === urlWithoutQuery) return value
+              }
             }
           } catch (e) {}
           return originalUrl
         }
+
+        const processCssText = (text) => {
+          if (!text) return text
+          return text.replace(
+            /url\((['"]?)(.*?)\1\)/gi,
+            (match, quote, innerUrl) => {
+              if (innerUrl.startsWith('data:') || innerUrl.startsWith('#'))
+                return match
+              try {
+                const absoluteUrl = new URL(innerUrl, cleanUrl).href
+                const localPath = rewriteAssetUrl(absoluteUrl)
+                return `url(${quote}${localPath}${quote})`
+              } catch (e) {
+                return match
+              }
+            },
+          )
+        }
+
+        $('style').each((i, el) => {
+          const cssText = $(el).html()
+          if (cssText && cssText.includes('url(')) {
+            $(el).html(processCssText(cssText))
+          }
+        })
+
+        $('[style]').each((i, el) => {
+          const styleText = $(el).attr('style')
+          if (styleText && styleText.includes('url(')) {
+            $(el).attr('style', processCssText(styleText))
+          }
+        })
 
         $('img, script, audio, video, iframe, source').each((i, el) => {
           const src = $(el).attr('src')
@@ -331,6 +374,132 @@ async function runArchive(startUrl) {
       JSON.stringify(mapData, null, 2),
     )
 
+    // --- NEW: BURN IN THE STANDALONE INTERCEPTOR ---
+    console.log(
+      `\n⚙️ Burning standalone offline interceptor into HTML files...`,
+    )
+
+    // We replace < characters in the JSON to prevent XSS/script-breaking during injection
+    const standaloneScript = `
+        <script>
+            console.log('[Standalone Archiver] Offline Interceptor Active');
+            window.__URL_MAP__ = ${JSON.stringify(mapData).replace(/</g, '\\u003c')};
+
+            function findLocalMap(requestUrl) {
+                if(!requestUrl) return null;
+                const keys = Object.keys(window.__URL_MAP__);
+                if (window.__URL_MAP__[requestUrl]) return window.__URL_MAP__[requestUrl];
+                try {
+                    const reqUrlObj = new URL(requestUrl, window.location.origin);
+                    const reqPathname = reqUrlObj.pathname;
+                    for (let key of keys) {
+                        try {
+                            if (new URL(key).pathname === reqPathname) return window.__URL_MAP__[key];
+                        } catch(e) {}
+                    }
+                } catch(e) {}
+                let searchStr = requestUrl.split('?')[0];
+                for(let key of keys) {
+                    if(key.split('?')[0].endsWith(searchStr)) return window.__URL_MAP__[key];
+                }
+                return null;
+            }
+
+            const originalFetch = window.fetch;
+            window.fetch = async function() {
+                let urlStr = typeof arguments[0] === 'string' ? arguments[0] : arguments[0].url;
+                let localPath = findLocalMap(urlStr);
+                // Standalone uses relative paths from the current HTML file
+                if (localPath) arguments[0] = './' + localPath;
+                return originalFetch.apply(this, arguments);
+            };
+
+            const originalOpen = XMLHttpRequest.prototype.open;
+            XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+                let localPath = findLocalMap(url.toString());
+                if (localPath) url = './' + localPath;
+                return originalOpen.call(this, method, url, ...rest);
+            };
+
+            const observer = new MutationObserver((mutations) => {
+                mutations.forEach((mutation) => {
+                    if (mutation.type === 'attributes' && ['src', 'srcset', 'href'].includes(mutation.attributeName)) {
+                        const el = mutation.target;
+                        const currentVal = el.getAttribute(mutation.attributeName);
+                        // Prevent infinite loops by ignoring data URIs and already-rewritten relative paths
+                        if (!currentVal || currentVal.startsWith('data:') || currentVal.startsWith('./')) return;
+
+                        let localPath = findLocalMap(currentVal);
+                        if (localPath) {
+                            observer.disconnect();
+                            if (mutation.attributeName === 'srcset') {
+                                el.setAttribute('srcset', currentVal.split(',').map(part => {
+                                    const p = part.trim().split(/\\s+/);
+                                    let lp = findLocalMap(p[0]);
+                                    return lp ? './' + lp + (p[1] ? ' ' + p[1] : '') : part;
+                                }).join(', '));
+                            } else {
+                                el.setAttribute(mutation.attributeName, './' + localPath);
+                            }
+                            startObserving();
+                        }
+                    }
+
+                    if (mutation.type === 'childList') {
+                        mutation.addedNodes.forEach(node => {
+                            if (node.nodeType === 1) {
+                                const processNode = (el) => {
+                                    ['src', 'href'].forEach(attr => {
+                                        if (el.hasAttribute && el.hasAttribute(attr)) {
+                                            const val = el.getAttribute(attr);
+                                            if (val && !val.startsWith('data:') && !val.startsWith('./')) {
+                                                let local = findLocalMap(val);
+                                                if (local) {
+                                                    observer.disconnect();
+                                                    el.setAttribute(attr, './' + local);
+                                                    startObserving();
+                                                }
+                                            }
+                                        }
+                                    });
+                                };
+
+                                processNode(node);
+                                if (node.querySelectorAll) {
+                                    node.querySelectorAll('[src], [href]').forEach(processNode);
+                                }
+                            }
+                        });
+                    }
+                });
+            });
+
+            function startObserving() {
+                if(!document.documentElement) return;
+                observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['src', 'srcset', 'href'] });
+            }
+
+            startObserving();
+            window.addEventListener('DOMContentLoaded', startObserving);
+        </script>
+        `
+
+    // Inject the script into EVERY saved HTML file so multi-page crawls work perfectly standalone
+    const htmlFiles = fs
+      .readdirSync(dirs.html)
+      .filter((file) => file.endsWith('.html'))
+    for (const file of htmlFiles) {
+      const filePath = path.join(dirs.html, file)
+      let content = fs.readFileSync(filePath, 'utf-8')
+      if (content.includes('<head>')) {
+        content = content.replace('<head>', '<head>\n' + standaloneScript)
+      } else {
+        content = standaloneScript + '\n' + content // Fallback if no head exists
+      }
+      fs.writeFileSync(filePath, content)
+      console.log(`💉 Injected standalone brain into ${file}`)
+    }
+
     const metadata = {
       id: `${domainClean}_${timestamp}`,
       originalUrl: startUrl,
@@ -357,7 +526,6 @@ async function runArchive(startUrl) {
   } catch (error) {
     console.error(`❌ Fatal error during archiving: ${error}`)
   } finally {
-    // Always make sure we close the browser, even if it crashes, to prevent memory leaks!
     await browser.close()
   }
 }
@@ -367,11 +535,7 @@ if (scheduleIntervalMinutes > 0) {
   console.log(
     `\n⏰ Scheduled mode activated! Archiving every ${scheduleIntervalMinutes} minutes.`,
   )
-
-  // Run it immediately the first time
   runArchive(targetUrl)
-
-  // Then set up the repeating timer
   setInterval(
     () => {
       console.log(`\n======================================================`)
@@ -382,8 +546,7 @@ if (scheduleIntervalMinutes > 0) {
       runArchive(targetUrl)
     },
     scheduleIntervalMinutes * 60 * 1000,
-  ) // Convert minutes to milliseconds
+  )
 } else {
-  // Standard run once mode
   runArchive(targetUrl)
 }
