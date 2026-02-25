@@ -1,6 +1,7 @@
 const express = require('express')
 const fs = require('fs')
 const path = require('path')
+const archiverLib = require('archiver') // NEW: Import the zip library
 
 const app = express()
 const PORT = 3000
@@ -8,6 +9,7 @@ const ARCHIVES_DIR = path.join(__dirname, 'archives')
 
 if (!fs.existsSync(ARCHIVES_DIR)) fs.mkdirSync(ARCHIVES_DIR)
 
+// Route 1: The Modern Web UI Dashboard
 app.get('/', (req, res) => {
   let folders = fs
     .readdirSync(ARCHIVES_DIR)
@@ -47,23 +49,33 @@ app.get('/', (req, res) => {
         } catch (e) {}
       }
 
+      // NEW: Updated Card UI with Action Buttons
       return `
-            <a href="/view/${folder}/" class="card" target="_blank">
-                <div class="card-icon">
-                    <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path></svg>
-                </div>
-                <div class="card-content">
-                    <h2 class="domain" title="${title}">${title}</h2>
-                    ${originalUrl ? `<p class="original-url">🔗 ${originalUrl}</p>` : ''}
-                    <div class="date-row">
-                        <p class="date">Captured: ${dateStr}</p>
-                        ${statsHtml}
+            <div class="card">
+                <div class="card-body">
+                    <div class="card-icon">
+                        <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path></svg>
+                    </div>
+                    <div class="card-content">
+                        <h2 class="domain" title="${title}">${title}</h2>
+                        ${originalUrl ? `<p class="original-url">🔗 ${originalUrl}</p>` : ''}
+                        <div class="date-row">
+                            <p class="date">Captured: ${dateStr}</p>
+                            ${statsHtml}
+                        </div>
                     </div>
                 </div>
-                <div class="card-arrow">
-                    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                <div class="card-actions">
+                    <a href="/view/${folder}/" target="_blank" class="btn btn-primary">
+                        <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
+                        View Offline
+                    </a>
+                    <a href="/download/${folder}" class="btn btn-secondary">
+                        <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                        Export .zip
+                    </a>
                 </div>
-            </a>
+            </div>
         `
     })
     .join('')
@@ -83,8 +95,11 @@ app.get('/', (req, res) => {
                 h1 { font-size: 2.5rem; font-weight: 800; margin: 0; }
                 .subtitle { color: var(--text-muted); font-size: 1.1rem; margin-top: 0.5rem; }
                 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1.5rem; }
-                .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; display: flex; align-items: center; text-decoration: none; color: inherit; transition: all 0.2s ease; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+
+                /* NEW UI STYLES FOR BUTTONS */
+                .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; display: flex; flex-direction: column; transition: all 0.2s ease; box-shadow: 0 1px 3px rgba(0,0,0,0.05); overflow: hidden; }
                 .card:hover { transform: translateY(-4px); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); border-color: #bfdbfe; }
+                .card-body { padding: 1.5rem; display: flex; align-items: center; flex: 1; }
                 .card-icon { background: #eff6ff; color: var(--primary); padding: 0.75rem; border-radius: 10px; margin-right: 1.25rem; }
                 .card-content { flex: 1; min-width: 0; }
                 .domain { margin: 0 0 0.25rem 0; font-size: 1.1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -95,8 +110,13 @@ app.get('/', (req, res) => {
                 .pill { font-size: 0.7rem; font-weight: 600; padding: 2px 8px; border-radius: 12px; }
                 .badge-blue { background: #dbeafe; color: #1e40af; }
                 .badge-gray { background: #f1f5f9; color: #475569; }
-                .card-arrow { color: #cbd5e1; transition: color 0.2s; margin-left: 1rem; }
-                .card:hover .card-arrow { color: var(--primary); }
+
+                .card-actions { border-top: 1px solid var(--border); padding: 1rem 1.5rem; display: flex; gap: 1rem; background: #f8fafc; }
+                .btn { padding: 0.5rem 1rem; border-radius: 6px; text-decoration: none; font-size: 0.875rem; font-weight: 600; transition: all 0.2s; text-align: center; flex: 1; display: flex; justify-content: center; align-items: center; gap: 0.5rem; }
+                .btn-primary { background: var(--primary); color: white; border: 1px solid var(--primary); }
+                .btn-primary:hover { background: #2563eb; }
+                .btn-secondary { background: white; color: #475569; border: 1px solid #cbd5e1; }
+                .btn-secondary:hover { background: #f1f5f9; color: #0f172a; border-color: #94a3b8; }
             </style>
         </head>
         <body>
@@ -109,6 +129,36 @@ app.get('/', (req, res) => {
     `)
 })
 
+// Route 2: NEW! The Dynamic Zip Downloader
+app.get('/download/:archiveId', (req, res) => {
+  const archiveId = req.params.archiveId
+  const folderPath = path.join(ARCHIVES_DIR, archiveId)
+
+  if (!fs.existsSync(folderPath)) {
+    return res.status(404).send('Archive not found')
+  }
+
+  // Tell the browser to expect a file download
+  res.attachment(`${archiveId}.zip`)
+
+  // Create the zip archive stream on-the-fly with max compression
+  const archive = archiverLib('zip', { zlib: { level: 9 } })
+
+  archive.on('error', (err) => {
+    res.status(500).send({ error: err.message })
+  })
+
+  // Pipe the archive data straight into the HTTP response stream
+  archive.pipe(res)
+
+  // Append the entire directory to the zip
+  archive.directory(folderPath, false)
+
+  // Finalize the zip and finish the download
+  archive.finalize()
+})
+
+// Route 3: Serve the archive and Inject the Interceptors
 app.use('/view', (req, res, next) => {
   const pathParts = req.path.split('/').filter(Boolean)
   if (pathParts.length === 0) return res.status(404).send('Archive ID missing')
@@ -213,6 +263,7 @@ app.use('/view', (req, res, next) => {
   res.sendFile(fullPath)
 })
 
+// Route 4: Catch-All Server Fallback
 app.use((req, res, next) => {
   const referer = req.get('referer')
   if (referer && referer.includes('/view/')) {
