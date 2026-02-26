@@ -4,6 +4,8 @@ Your personal, offline time machine.
 
 Web Archiver is a Node.js-based tool that allows you to crawl and download a fully functional, offline copy of a website. It intercepts network requests, rewrites HTML assets to point to local files, and even injects a standalone offline interceptor to ensure Single Page Applications (SPAs) function correctly without an internet connection. It also includes a beautiful web dashboard to view and export your saved archives.
 
+**[Watch the Demo Video](https://drive.google.com/file/d/1GD3D_MJoqc___MVJasgwbsWysnfVUrGR/view?usp=sharing)**
+
 ## Features
 
 - **Headless Crawling:** Uses Puppeteer to fully render and capture pages, including dynamic content.
